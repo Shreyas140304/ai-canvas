@@ -32,10 +32,12 @@ window.addEventListener("resize", resizeCanvas);
 // -------------------------
 // Stroke data
 // -------------------------
-
 let strokes = [];
 let currentStroke = null;
+
 let isPanning = false;
+let panPointerId = null;
+
 let lastPanX = 0;
 let lastPanY = 0;
 
@@ -45,6 +47,8 @@ let lastPanY = 0;
 
 canvas.addEventListener("pointerdown", (event) => {
   if (isPanning) {
+    panPointerId = event.pointerId;
+
     lastPanX = event.clientX;
     lastPanY = event.clientY;
 
@@ -69,7 +73,7 @@ canvas.addEventListener("pointerdown", (event) => {
 // -------------------------
 
 canvas.addEventListener("pointermove", (event) => {
-  if (isPanning) {
+  if (panPointerId === event.pointerId) {
     const dx = event.clientX - lastPanX;
     const dy = event.clientY - lastPanY;
 
@@ -83,6 +87,7 @@ canvas.addEventListener("pointermove", (event) => {
 
     return;
   }
+
   if (!currentStroke) return;
 
   const point = screenToWorld(event.clientX, event.clientY);
@@ -96,12 +101,15 @@ canvas.addEventListener("pointermove", (event) => {
 // Finish stroke
 // -------------------------
 
-canvas.addEventListener("pointerup", () => {
-  if (isPanning) {
+canvas.addEventListener("pointerup", (event) => {
+  if (panPointerId === event.pointerId) {
+    panPointerId = null;
+
     canvas.releasePointerCapture(event.pointerId);
 
     return;
   }
+
   if (!currentStroke) return;
 
   strokes.push(currentStroke);
@@ -152,6 +160,12 @@ window.addEventListener("keyup", (event) => {
     isPanning = false;
     canvas.style.cursor = "crosshair";
   }
+});
+
+window.addEventListener("blur", () => {
+  isPanning = false;
+  panPointerId = null;
+  canvas.style.cursor = "crosshair";
 });
 // -------------------------
 // Render everything
