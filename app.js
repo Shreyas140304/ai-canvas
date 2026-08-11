@@ -34,7 +34,8 @@ window.addEventListener("resize", resizeCanvas);
 // -------------------------
 let strokes = [];
 let currentStroke = null;
-
+let undoStack = [];
+let redoStack = [];
 let isPanning = false;
 let panPointerId = null;
 
@@ -114,10 +115,39 @@ canvas.addEventListener("pointerup", (event) => {
 
   strokes.push(currentStroke);
 
+  undoStack.push(currentStroke);
+
+  redoStack = [];
   currentStroke = null;
 
   render();
 });
+
+function undo() {
+  if (strokes.length === 0) {
+    return;
+  }
+
+  const stroke = strokes.pop();
+
+  undoStack.pop();
+  redoStack.push(stroke);
+
+  render();
+}
+
+function redo() {
+  if (redoStack.length === 0) {
+    return;
+  }
+
+  const stroke = redoStack.pop();
+
+  strokes.push(stroke);
+  undoStack.push(stroke);
+
+  render();
+}
 
 canvas.addEventListener("wheel", (event) => {
   event.preventDefault();
@@ -152,6 +182,16 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     isPanning = true;
     canvas.style.cursor = "grab";
+  }
+
+  if (event.ctrlKey && event.key === "z") {
+    event.preventDefault();
+    undo();
+  }
+
+  if (event.ctrlKey && event.key === "y") {
+    event.preventDefault();
+    redo();
   }
 });
 
