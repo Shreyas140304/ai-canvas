@@ -332,6 +332,26 @@ window.addEventListener("keydown", (event) => {
 
     render();
   }
+
+  if (event.key === "Delete" && selectedStroke) {
+    const index = strokes.indexOf(selectedStroke);
+
+    if (index !== -1) {
+      const removedStroke = strokes.splice(index, 1)[0];
+
+      undoStack.push({
+        type: "erase",
+        stroke: removedStroke,
+        index: index,
+      });
+
+      redoStack = [];
+
+      selectedStroke = null;
+
+      render();
+    }
+  }
 });
 
 window.addEventListener("keyup", (event) => {
