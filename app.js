@@ -34,19 +34,29 @@ window.addEventListener("resize", resizeCanvas);
 // -------------------------
 let strokes = [];
 let currentStroke = null;
+
 let undoStack = [];
 let redoStack = [];
+let isErasing = false;
+
 let isPanning = false;
 let panPointerId = null;
 
 let lastPanX = 0;
 let lastPanY = 0;
-
 // -------------------------
 // Start drawing
 // -------------------------
 
 canvas.addEventListener("pointerdown", (event) => {
+  if (isErasing) {
+    eraseAt(event.clientX, event.clientY);
+
+    canvas.setPointerCapture(event.pointerId);
+
+    return;
+  }
+
   if (isPanning) {
     panPointerId = event.pointerId;
 
@@ -74,6 +84,11 @@ canvas.addEventListener("pointerdown", (event) => {
 // -------------------------
 
 canvas.addEventListener("pointermove", (event) => {
+  if (isErasing) {
+    eraseAt(event.clientX, event.clientY);
+    return;
+  }
+
   if (panPointerId === event.pointerId) {
     const dx = event.clientX - lastPanX;
     const dy = event.clientY - lastPanY;
@@ -115,7 +130,10 @@ canvas.addEventListener("pointerup", (event) => {
 
   strokes.push(currentStroke);
 
-  undoStack.push(currentStroke);
+  undoStack.push({
+    type: "draw",
+    stroke: currentStroke,
+  });
 
   redoStack = [];
   currentStroke = null;
@@ -124,14 +142,23 @@ canvas.addEventListener("pointerup", (event) => {
 });
 
 function undo() {
-  if (strokes.length === 0) {
+  if (undoStack.length === 0) {
     return;
   }
 
-  const stroke = strokes.pop();
+  const action = undoStack.pop();
 
-  undoStack.pop();
-  redoStack.push(stroke);
+  if (action.type === "draw") {
+    const index = strokes.indexOf(action.stroke);
+
+    if (index !== -1) {
+      strokes.splice(index, 1);
+    }
+  } else if (action.type === "erase") {
+    strokes.splice(action.index, 0, action.stroke);
+  }
+
+  redoStack.push(action);
 
   render();
 }
@@ -141,10 +168,19 @@ function redo() {
     return;
   }
 
-  const stroke = redoStack.pop();
+  const action = redoStack.pop();
 
-  strokes.push(stroke);
-  undoStack.push(stroke);
+  if (action.type === "draw") {
+    strokes.push(action.stroke);
+  } else if (action.type === "erase") {
+    const index = strokes.indexOf(action.stroke);
+
+    if (index !== -1) {
+      strokes.splice(index, 1);
+    }
+  }
+
+  undoStack.push(action);
 
   render();
 }
@@ -193,6 +229,12 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     redo();
   }
+
+  if (event.key === "e" || event.key === "E") {
+    isErasing = !isErasing;
+
+    canvas.style.cursor = isErasing ? "not-allowed" : "crosshair";
+  }
 });
 
 window.addEventListener("keyup", (event) => {
@@ -210,6 +252,38 @@ window.addEventListener("blur", () => {
 // -------------------------
 // Render everything
 // -------------------------
+function eraseAt(screenX, screenY) {
+  const worldPoint = screenToWorld(screenX, screenY);
+
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const stroke = strokes[i];
+
+    for (const point of stroke.points) {
+      const dx = point.x - worldPoint.x;
+      const dy = point.y - worldPoint.y;
+
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < 15) {
+        const removedStroke = strokes.splice(i, 1)[0];
+
+        // Remember what was removed
+        undoStack.push({
+          type: "erase",
+          stroke: removedStroke,
+          index: i,
+        });
+
+        // New action destroys redo history
+        redoStack = [];
+
+        render();
+
+        return;
+      }
+    }
+  }
+}
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
