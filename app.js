@@ -39,6 +39,14 @@ let undoStack = [];
 let redoStack = [];
 let isErasing = false;
 
+let isSelecting = false;
+let selectedStroke = null;
+
+let isMoving = false;
+let lastMoveX = 0;
+let lastMoveY = 0;
+let moveStartPoints = null;
+
 let isPanning = false;
 let panPointerId = null;
 
@@ -53,6 +61,26 @@ canvas.addEventListener("pointerdown", (event) => {
     eraseAt(event.clientX, event.clientY);
 
     canvas.setPointerCapture(event.pointerId);
+
+    return;
+  }
+
+  if (isSelecting) {
+    selectAt(event.clientX, event.clientY);
+
+    if (selectedStroke) {
+      isMoving = true;
+
+      lastMoveX = event.clientX;
+      lastMoveY = event.clientY;
+
+      moveStartPoints = selectedStroke.points.map((point) => ({
+        x: point.x,
+        y: point.y,
+      }));
+
+      canvas.setPointerCapture(event.pointerId);
+    }
 
     return;
   }
@@ -84,6 +112,26 @@ canvas.addEventListener("pointerdown", (event) => {
 // -------------------------
 
 canvas.addEventListener("pointermove", (event) => {
+  if (isMoving && selectedStroke) {
+    const dx = event.clientX - lastMoveX;
+    const dy = event.clientY - lastMoveY;
+
+    const worldDX = dx / camera.zoom;
+    const worldDY = dy / camera.zoom;
+
+    for (const point of selectedStroke.points) {
+      point.x += worldDX;
+      point.y += worldDY;
+    }
+
+    lastMoveX = event.clientX;
+    lastMoveY = event.clientY;
+
+    render();
+
+    return;
+  }
+
   if (isErasing) {
     eraseAt(event.clientX, event.clientY);
     return;
@@ -118,6 +166,34 @@ canvas.addEventListener("pointermove", (event) => {
 // -------------------------
 
 canvas.addEventListener("pointerup", (event) => {
+  if (isMoving) {
+    isMoving = false;
+
+    if (selectedStroke && moveStartPoints) {
+      const endPoints = selectedStroke.points.map((point) => ({
+        x: point.x,
+        y: point.y,
+      }));
+
+      undoStack.push({
+        type: "move",
+        stroke: selectedStroke,
+        before: moveStartPoints,
+        after: endPoints,
+      });
+
+      redoStack = [];
+    }
+
+    moveStartPoints = null;
+
+    canvas.releasePointerCapture(event.pointerId);
+
+    render();
+
+    return;
+  }
+
   if (panPointerId === event.pointerId) {
     panPointerId = null;
 
@@ -156,6 +232,11 @@ function undo() {
     }
   } else if (action.type === "erase") {
     strokes.splice(action.index, 0, action.stroke);
+  } else if (action.type === "move") {
+    action.stroke.points = action.before.map((point) => ({
+      x: point.x,
+      y: point.y,
+    }));
   }
 
   redoStack.push(action);
@@ -178,8 +259,12 @@ function redo() {
     if (index !== -1) {
       strokes.splice(index, 1);
     }
+  } else if (action.type === "move") {
+    action.stroke.points = action.after.map((point) => ({
+      x: point.x,
+      y: point.y,
+    }));
   }
-
   undoStack.push(action);
 
   render();
@@ -235,6 +320,18 @@ window.addEventListener("keydown", (event) => {
 
     canvas.style.cursor = isErasing ? "not-allowed" : "crosshair";
   }
+
+  if (event.key === "v") {
+    isSelecting = !isSelecting;
+
+    isErasing = false;
+
+    selectedStroke = null;
+
+    canvas.style.cursor = isSelecting ? "default" : "crosshair";
+
+    render();
+  }
 });
 
 window.addEventListener("keyup", (event) => {
@@ -285,6 +382,31 @@ function eraseAt(screenX, screenY) {
   }
 }
 
+function selectAt(screenX, screenY) {
+  const worldPoint = screenToWorld(screenX, screenY);
+
+  selectedStroke = null;
+
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const stroke = strokes[i];
+
+    for (const point of stroke.points) {
+      const dx = point.x - worldPoint.x;
+      const dy = point.y - worldPoint.y;
+
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < 15) {
+        selectedStroke = stroke;
+        render();
+        return;
+      }
+    }
+  }
+
+  render();
+}
+
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -318,6 +440,44 @@ function render() {
   if (currentStroke) {
     drawStroke(currentStroke);
   }
+
+  if (selectedStroke) {
+    drawSelectionBox(selectedStroke);
+  }
+}
+
+function drawSelectionBox(stroke) {
+  if (!stroke || stroke.points.length === 0) return;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const point of stroke.points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+
+  const topLeft = worldToScreen(minX, minY);
+  const bottomRight = worldToScreen(maxX, maxY);
+
+  ctx.save();
+
+  ctx.strokeStyle = "blue";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 5]);
+
+  ctx.strokeRect(
+    topLeft.x - 8,
+    topLeft.y - 8,
+    bottomRight.x - topLeft.x + 16,
+    bottomRight.y - topLeft.y + 16,
+  );
+
+  ctx.restore();
 }
 
 function drawStroke(stroke) {
